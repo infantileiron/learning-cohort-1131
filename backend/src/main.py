@@ -6,9 +6,12 @@ from src.config.database import Base,engine
 from src.models import entities
 from src.routes.api import router
 from src.middlewares.request import RequestId,SecurityHeaders
+from src.services.locking import ensure_lock_row
 @asynccontextmanager
 async def lifespan(app):
  Base.metadata.create_all(engine)
+ with engine.begin() as connection:
+  ensure_lock_row(connection)
  if os.getenv('SEED_DEMO')=='true':
   try:
    from scripts.seed_demo import seed

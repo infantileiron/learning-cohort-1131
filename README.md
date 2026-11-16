@@ -6,7 +6,7 @@
 
 模拟客户常青企业大学，运营组服务200名学员。原工作流从学习平台导出 `常青_学习事件_20261115.xlsx`，用工作簿手工找首学日期、统计每周回访，再复制缺席名单到周会纪要。三个痛点：同周多事件重复计人数、截断历史把老学员误算新客、未观察完整的周被当成零留存。上游是学习事件；本项目替代队列计算、成熟判断与成员核对；下游由学习负责人签核辅导安排。
 
-四个业务模块：事件台账（录入/完整字段修订）、队列配置、留存矩阵（冻结版本/成熟遮罩/成员来源）、干预清单（站内草案/管理员签核/导出）。业务实体为Event、Cohort、Intervention，另有User和Audit。
+四个业务模块加一个归档任务模块：事件台账（录入/完整字段修订）、归档任务（冷事件迁出/续跑/完整性）、队列配置、留存矩阵（冻结版本/成熟遮罩/成员来源）、干预清单（站内草案/管理员签核/导出）。业务实体为Event、ArchivedEvent、ArchiveJob、Cohort、Intervention，另有User和Audit。
 
 |角色|权限与典型动作|
 |---|---|
@@ -35,6 +35,19 @@ docker compose exec -T backend python -m scripts.seed_demo
 6. 09:40 worker计算，点击刷新；核对分母、W0到W5、未成熟遮罩。
 7. 10:00 点击成熟列“查看未回访”，写“核对排班后安排站内学习辅导”，保存冻结成员。
 8. 10:10 admin签核；10:20 viewer下载 `learning-cohort-<id>.json` 和 `learning-members-<id>.json`。
+9. 10:30 analyst到“归档任务”把截止业务日以前的事件迁到共享批次文件，台账仍可按来源核对归档事件。
+
+## 归档口径与并发
+
+归档截止日是上海业务日：该日**之前**（严格小于）的事件才会迁出，当日事件保留在线。批次文件写在共享卷 `ARCHIVE_DIR`（默认 `/artifacts/archive/batch-<job_id>.json`），包含 `job_id/cutoff/count/checksum/events`；事件按唯一编号排序，每行保留 `source_id` 以便追溯。
+
+写入用临时文件+fsync+`os.replace`，读者看不到半截批次；写后读回核验条数与校验和，**核验通过后才在同一事务里把在线行移到归档表**。任务状态为 `pending/processing/archived/failed`，页面按“待归档/处理中/已归档/失败”展示；同一时间只允许一个未完成批次。已核验的批次文件在续跑时被复用，已归档任务再次被唤醒直接跳过，因此重试不会重复搬迁。写文件后中断可用“续跑该批次”恢复。
+
+台账读取 `events` 与 `archived_events` 合并视图并标注来源；归档事件仍可查询、修订（记录ID用 `a<id>`，也接受归档前的旧数字ID）。修订永远留在归档层，不会重新插回在线表，否则会被下一次快照重复计数。同编号重录沿用原规则：内容相同幂等返回原记录，内容冲突409。
+
+建队列时在同一把台账锁内校验归档完整性并读取合并历史，冻结快照包含在线与归档的全部事件，每条只计一次；既有矩阵、干预清单和快照不变。归档、修订、建队列三者串行：MySQL 用 `event_locks` 单行事务锁（死锁时重试），SQLite 测试用进程锁。因此不会读到半批，也不会丢掉归档期间已确认的修订。
+
+归档批次缺失、损坏、条数与任务或归档表不符时，`POST /cohorts` 返回409并列出批次号与文件路径；矩阵与归档页显示同一问题，事件台账给出来源批次。
 
 ## 计算口径与边界
 
@@ -53,9 +66,9 @@ docker compose exec -T backend python -m scripts.seed_demo
 |后端|Python3.11、FastAPI、SQLAlchemy、PyJWT、PyMySQL|
 |前端|原生ES modules、CSS、Nginx1.27|
 |持久化|MySQL8、Redis7、命名产物卷|
-|worker|Redis任务队列、DB状态、心跳文件、启动恢复queued/running|
+|worker|Redis任务队列（cohort:jobs / archive:jobs）、DB状态、心跳文件、启动恢复queued/running/processing|
 
-目录：backend/src下routes/controllers/services/models/schemas/middlewares/config/utils/constants；frontend/src下api/stores/pages/components/common/hooks/utils/constants/types/router；backend/scripts/seed_demo.py；backend/migrations/001_initial.sql。所有计算/校验在Python，前端仅展示/交互。共有表格、表单字段、状态标签组件，form hook和HTML转义工具；请求ID与安全响应头两个中间件，写入业务审计和全局错误处理。
+目录：backend/src下routes/controllers/services/models/schemas/middlewares/config/utils/constants；frontend/src下api/stores/pages/components/common/hooks/utils/constants/types/router；backend/scripts/seed_demo.py；backend/migrations/001_initial.sql；backend/tests（pytest归档与并发场景）。所有计算/校验在Python，前端仅展示/交互。共有表格、表单字段、状态标签组件，form hook和HTML转义工具；请求ID与安全响应头两个中间件，写入业务审计和全局错误处理。
 
 共享枚举：ROLES、STATES、COURSES、STAGES在后端src/constants/enums.py与前端src/constants/enums.js；schema/business.py约束课程与配置，models/entities.py存储状态。实例数据与队列名隔离；backend/worker依赖db和Redis健康，worker还等backend，frontend等backend。数据库、Redis和/artifacts均命名卷；五服务各有healthcheck。worker每轮刷新/tmp/heartbeat，结果在共享/artifacts。Nginx `/api/`去前缀代理到后端根路由。
 
@@ -63,4 +76,4 @@ docker compose exec -T backend python -m scripts.seed_demo
 
 本地开发可只起db/redis，backend安装requirements、设置DATABASE_URL/REDIS_URL/JWT_SECRET后 `uvicorn src.main:app --reload`；前端使用Nginx同源代理。ORM首次建表，初始MySQL DDL在migrations内；无在线版本迁移执行器。清理本项目：`docker compose down -v --remove-orphans`。
 
-范围：逐条表单/API输入，无CSV批导、删除或课程级独立留存；目前所有课程共同定义“学习回访”。单worker、无外部学员通讯或生产学习平台连接，不宣称多worker exactly-once。Google Fonts离线时回退serif/sans-serif。测试/截图在../../test-artifacts/gb-3114，源码不放证据。MIT许可证，见LICENSE。
+范围：逐条表单/API输入，无CSV批导、删除或课程级独立留存；归档是移动而非删除，归档事件仍可修订；目前所有课程共同定义“学习回访”。单worker、无外部学员通讯或生产学习平台连接，不宣称多worker exactly-once；归档在单worker下串行执行，重复唤醒幂等。Google Fonts离线时回退serif/sans-serif。测试/截图在../../test-artifacts/gb-3114，源码不放证据。MIT许可证，见LICENSE。

@@ -1,0 +1,9 @@
+import {state} from '../stores/session.js';import {esc} from '../utils/html.js';import {badge} from '../components/common/status.js';import {field} from '../components/common/fields.js';
+const stage=s=>({pending:'待归档',processing:'处理中',archived:'已归档',failed:'失败'}[s]||s);
+export function render(){
+ const flagged=problemsOf();
+ return `<div class="split"><section class="panel"><h2>冷事件移出在线表，历史仍可核对</h2><p class="notice">按上海业务日把指定日期以前的事件写成共享批次文件，核对条数与校验和后，才从在线表移出。台账、矩阵和干预都读取在线与归档的完整历史；同一编号只计一次。归档缺失或损坏时，新计算会被阻止，并定位到批次。</p>${flagged.length?`<p class="notice error">${problems(flagged)}</p>`:''}<div class="metrics"><div><strong>${count('online')}</strong>在线事件</div><div><strong>${count('archive')}</strong>归档事件</div><div><strong>${state.events.length}</strong>合并后历史</div></div><h3>归档批次</h3>${state.archives.map(job).join('')||'<p>尚无归档批次。右侧输入截止业务日；该日及以后的事件保留在线。</p>'}</section><aside class="side"><h2>新建归档批次</h2><p>截止日为上海业务日，严格早于该日的事件才会归档；当日事件保留在线。批次文件写在共享卷 /artifacts/archive。</p><form id="archive">${field('归档指定日期以前（上海业务日）','cutoff','date','required value="2026-10-01"')}<button class="primary">创建并执行归档</button></form><p class="eyebrow">STATES</p><p>待归档 / 处理中 / 已归档 / 失败</p></aside></div>`}
+const count=t=>state.events.filter(e=>e.origin===t).length;
+const problemsOf=()=>state.archives.filter(a=>a.problem);
+const problems=list=>list.map(a=>`批次 #${a.id}：${esc(a.problem.reason)}（${esc(a.problem.file)}）`).join('；');
+const job=a=>`<article class="rec"><h3>批次 #${a.id} · 截至 ${esc(a.cutoff)} ${badge(stage(a.state))}</h3><p>候选 ${a.candidate_count} 条，已归档 ${a.archived_count} 条${a.batch_checksum?` · 校验和 ${esc(a.batch_checksum.slice(0,12))}…`:''}</p><p class="members">创建 ${esc(a.created_at||'—')}${a.finished_at?' · 完成 '+esc(a.finished_at):''}</p>${a.error?`<p class="error">${esc(a.error)}</p>`:''}${a.problem?`<p class="error">完整性问题：${esc(a.problem.reason)}</p>`:''}${a.state==='archived'?'':`<button data-retry="${a.id}">续跑该批次</button>`}</article>`;

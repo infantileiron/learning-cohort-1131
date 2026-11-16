@@ -41,6 +41,45 @@ CREATE TABLE `users` (
   UNIQUE KEY `email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE `archive_jobs` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `cutoff` varchar(10) NOT NULL,
+  `state` varchar(20) DEFAULT NULL,
+  `candidate_count` int DEFAULT NULL,
+  `archived_count` int DEFAULT NULL,
+  `batch_checksum` varchar(64) DEFAULT NULL,
+  `error` text,
+  `created_at` varchar(40) DEFAULT NULL,
+  `started_at` varchar(40) DEFAULT NULL,
+  `finished_at` varchar(40) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `ix_archive_jobs_cutoff` (`cutoff`),
+  KEY `ix_archive_jobs_state` (`state`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE `archived_events` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `code` varchar(60) NOT NULL,
+  `learner` varchar(60) NOT NULL,
+  `occurred_at` varchar(40) NOT NULL,
+  `course` varchar(40) DEFAULT NULL,
+  `note` text,
+  `origin_event_id` int DEFAULT NULL,
+  `archive_job_id` int NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `code` (`code`),
+  KEY `ix_archived_events_learner` (`learner`),
+  KEY `ix_archived_events_origin_event_id` (`origin_event_id`),
+  KEY `ix_archived_events_archive_job_id` (`archive_job_id`),
+  CONSTRAINT `archived_events_ibfk_1` FOREIGN KEY (`archive_job_id`) REFERENCES `archive_jobs` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE `event_locks` (
+  `id` int NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+INSERT INTO `event_locks` (`id`) VALUES (1);
+
 CREATE TABLE `interventions` (
   `id` int NOT NULL AUTO_INCREMENT,
   `cohort_id` int DEFAULT NULL,

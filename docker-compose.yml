@@ -6,6 +6,8 @@ x-app: &app
     REDIS_URL: redis://redis:6379/0
     JWT_SECRET: ${JWT_SECRET:-cohort-demo-change-in-production-3114}
     SEED_DEMO: ${SEED_DEMO:-true}
+    ARCHIVE_DIR: ${ARCHIVE_DIR:-/artifacts/archive}
+    ARTIFACTS_DIR: /artifacts
   volumes: [artifacts:/artifacts]
   depends_on:
     db: {condition: service_healthy}
